@@ -1,147 +1,257 @@
+import java.util.*;
 
-class HashEntry
-{
-    String key;
-    int value;
 
-    // Конструктор
-    HashEntry(String key, int value)
-    {
-        this.key = key;
-        this.value = value;
-    }
-}
+class DHHashTable<K, V> extends Hashtable<K, V> implements Map<K, V> {
+    private int numPair = 5; // максимальное кол-во пар
+    private int mod; //счетчик изменения таблицы
+    private int size = 0;
+    private Pair<K, V>[] table;
+    private double load; // степень заполнения
+    private int prime;
 
-// сам класс
-class HashTable
-{
-    public int tablsize;
-
-    public int size;
-
-    public HashEntry[] table;
-
-    public int primeSize;
-
-    public HashTable(int tablsiz)
-    {
-        size = 0;
-        tablsize = tablsiz;
-        table = new HashEntry[tablsize];
-        for (int i = 0; i < tablsize; i++)
-            table[i] = null;
-        primeSize = Primenumb();
+    //конструктор
+    DHHashTable() {
+        load = 0.75;
+        table = new Pair[numPair];
+        prime = getPrime();
+        mod = 0;
     }
 
-    // Функция которая выдает хеш-значение для данной строки
-    public int hashv(String x )
-    {
-        int hashVal = x.hashCode( );
-        hashVal %= tablsize;
-        if (hashVal < 0)
-            hashVal += tablsize;
-        return hashVal;
+    //получение простого числа меньшего размера таблицы для HashCode2
+    private int getPrime() {
+        int limit = numPair - 1;
+        if (limit == 2) return numPair;
+        boolean[] a = new boolean[numPair];
+        Arrays.fill(a, 2, numPair, true);
+        for (int i = 2; i < limit; i++)
+            if (a[i]) {
+                int j = 2;
+                while (j * i < limit) {
+                    a[i * j] = false;
+                    j++;
+                }
+            }
+        int res = 3;
+        for (int i = limit - 1; i >= 0; i--)
+            if (a[i]) {
+                res = i;
+                break;
+            }
+        return res;
     }
 
-    // Вставляет в табилцу пару
-    public void add(String key, int value)
-    {
-        if (size == tablsize)
-        {
-            System.out.println("Table full");
-            return;
+    // увеличение массива пар если size == numPair * load
+    @Override
+    public void rehash() {
+        Map<K, V> map = toMap();
+        numPair = (table.length << 1) + 1;
+        table = new Pair[numPair];
+        prime = getPrime();
+        putAll(map);
+        size = map.size();
+        mod++;
+    }
+
+    // основная хэш-фунция для вычисления хэш-кода
+    private int hashFunction1(Object key) {
+        return key.hashCode() % table.length;
+    }
+
+    // дополнительная хэш-функция для вычисления хэш-кода
+    private int hashFunction2(Object key) {
+        return prime - key.hashCode() % prime;
+    }
+
+    //добавлене в таблицу пары ключ значение
+    @Override
+    public V put(K key, V value) {
+        int hash1 = hashFunction1(key);
+        int hash2 = hashFunction2(key);
+
+        if (value == null) {
+            throw new NullPointerException();
         }
-        int hash1 = hashv( key );
-        int hash2 = hashdouble( key );
-        while (table[hash1] != null)
-        {
-            hash1 += hash2;
-            hash1 %= tablsize;
+        // добавление пары, если ячейка по данному hash1 == null
+        if (table[hash1] == null) {
+            table[hash1] = new Pair<>(key, value);
+            size++;
+            // перезапись значения при одинаковом ключе.(поиск ключа по hash1]
+        } else if (table[hash1].getKey().equals(key)) {
+            V res = table[hash1].getValue();
+            table[hash1] = new Pair<>(key, value);
+            return res;
+        } else {
+            int i = 1;
+            while (true) {
+                int index = (hash1 + i++ * hash2) % numPair; // формула для вычисления новой хэш-функции
+                // добавление пары в таблицу.
+                // Если при добавлении пары место в таблице по ее hash1 занято, то происходит добавление по index.
+                if (table[index] == null) {
+                    table[index] = new Pair<>(key, value);
+                    size++;
+                    break;
+                    // перезапись значения при одинковом ключе.
+                    // (Если ключ не нашелся по hash1, то мы производим поиск по index)
+                } else if (table[index].getKey().equals(key)) {
+                    V res = table[index].getValue();
+                    table[index] = new Pair<>(key, value);
+                    return res;
+                }
+            }
         }
-        table[hash1] = new HashEntry(key, value);
-        size++;
+        // увеличение массива пар
+        if (size == new Double(numPair * load).intValue())
+            rehash();
+        mod++;
+        return null;
     }
 
-    // удаление ключа
-    public void remove(String key)
-    {
-        int hash1 = hashv( key );
-        int hash2 = hashdouble( key );
-        while (table[hash1] != null && !table[hash1].key.equals(key))
-        {
-            hash1 += hash2;
-            hash1 %= tablsize;
+    // получение значение по ключу
+    @Override
+    public V get(Object key) {
+        for (Map.Entry<K, V> pair : entrySet()) {
+            if (pair.getKey().equals(key))
+                return pair.getValue();
         }
-        table[hash1] = null;
-        size--;
+        return null;
     }
 
-    // Достать нужный value по key
-    public int get(String key)
-    {
-        int hash1 = hashv( key );
-        int hash2 = hashdouble( key );
-
-        while (table[hash1] != null && !table[hash1].key.equals(key))
-        {
-            hash1 += hash2;
-            hash1 %= tablsize;
+    //удаление значения по ключу
+    @Override
+    public V remove(Object key) {
+        if (keySet().contains(key)) {
+            int i = 0;
+            int hash1 = hashFunction1(key);
+            int hash2 = hashFunction2(key);
+            while (!table[(hash1 + i * hash2) % numPair].getKey().equals(key))
+                i++;
+            V tmp = table[(hash1 + i * hash2) % numPair].getValue();
+            table[(hash1 + i * hash2) % numPair] = null;
+            size--;
+            mod++;
+            return tmp;
         }
-        return table[hash1].value;
+        return null;
     }
 
-    // Проверка на пустосту
-    public boolean isEmpty()
-    {
-        return size == 0;
+    //получение количество пар ключ-значение
+    public int size() {
+        return this.size;
     }
 
-    // Очистить таблицу
-    public void makeclear()
-    {
-        size = 0;
-        for (int i = 0; i < tablsize; i++)
-            table[i] = null;
+    // проверка наличия пар в таблице
+    public boolean isEmpty() {
+        return this.size == 0;
     }
 
-    // Узнаёт количество пар key-value
-    public int getSize()
-    {
-        return size;
+    // очистить таблицу
+    public void clear() {
+        table = new Pair[numPair];
     }
 
-    // Двойное хеширование
-    public int hashdouble(String x )
-    {
-        int hashVal = x.hashCode( );
-        hashVal %= tablsize;
-        if (hashVal < 0)
-            hashVal += tablsize;
-        return primeSize - hashVal % primeSize;
+    // содержит ли таблица ключ
+    public boolean containsKey(Object key) {
+        return get(key) != null;
+    }
+
+    // содержит ли таблица значение
+    public boolean containsValue(Object value) {
+        return values().contains(value);
     }
 
 
-    // Функция получения простого числа котрое меньше размера таблицы для hashdouble
-    public int Primenumb()
-    {
-        for (int i = tablsize - 1; i >= 1; i--)
-        {
-            int fact = 0;
-            for (int j = 2; j <= (int) Math.sqrt(i); j++)
-                if (i % j == 0)
-                    fact++;
-            if (fact == 0)
-                return i;
+    public void putAll(Map<? extends K, ? extends V> m) {
+        for (Map.Entry<? extends K, ? extends V> entry : m.entrySet()) {
+            put(entry.getKey(), entry.getValue());
         }
-        // Возвращает простое число
-        return 3;
     }
 
-    public void printHashTable()
-    {
-        System.out.println("\nHash Table");
-        for (int i = 0; i < tablsize; i++)
-            if (table[i] != null)
-                System.out.println(table[i].key +" "+table[i].value);
+    // возвращение всех ключей
+    public Set<K> keySet() {
+        Set<K> keys = new HashSet<>();
+        for (Map.Entry<K, V> pair : entrySet())
+            keys.add(pair.getKey());
+        return keys;
     }
+
+    // возвращение всех значений
+    public Collection<V> values() {
+        Set<V> vals = new HashSet<>();
+        for (Map.Entry<K, V> pair : entrySet())
+            vals.add(pair.getValue());
+        return vals;
+    }
+
+    // возвращает все элементы в виде объектов
+    public Set<Map.Entry<K, V>> entrySet() {
+        Set<Map.Entry<K, V>> set = new HashSet<>();
+        for (Pair<K, V> pair : table) {
+            if (pair != null)
+                set.add(new Pair<>(pair.getKey(), pair.getValue()));
+        }
+        return set;
+    }
+
+    private Map<K, V> toMap() {
+        Map<K, V> map = new HashMap<>();
+        for (Pair<K, V> pair : table) {
+            if (pair != null)
+                map.put(pair.getKey(), pair.getValue());
+        }
+        return map;
+    }
+
+    public String toString() {
+        if (size == 0) {
+            return "{}";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append('{');
+            int i = 0;
+            for (Map.Entry<K, V> e : entrySet()) {
+                K key = e.getKey();
+                V value = e.getValue();
+                sb.append(key == this ? "(this Map)" : key.toString());
+                sb.append('=');
+                sb.append(value == this ? "(this Map)" : value.toString());
+                if (++i < size)
+                    sb.append(", ");
+            }
+            return sb.append('}').toString();
+        }
+    }
+
+    private class Iter<T> implements Iterator<T> {
+        int index = 0, mod = 0;
+        T cur; //текущий элемент перебора таблицы
+
+        Iter() {
+            this.mod = DHHashTable.this.mod; // копируем значение счетчика в счетчик итератора
+        }
+
+        @Override
+        public boolean hasNext() {
+            do {
+                cur = (T) DHHashTable.this.table[index++];
+            } while (cur == null && index < DHHashTable.this.numPair);
+            return cur != null;
+        }
+
+        @Override
+        public T next() {
+            if (mod != DHHashTable.this.mod)
+                throw new ConcurrentModificationException();
+            return cur;
+        }
+
+        @Override
+        public void remove() {
+            if (mod != DHHashTable.this.mod)
+                throw new ConcurrentModificationException();
+            DHHashTable.this.remove(cur);
+            cur = null;
+            mod++;
+        }
+    }
+
 }
